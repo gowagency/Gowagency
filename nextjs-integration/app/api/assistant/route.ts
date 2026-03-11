@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
-// import { db } from "@/lib/db"; // seu cliente PostgreSQL (ex: Drizzle, Prisma, pg)
-// import { getServerSession } from "next-auth"; // ou seu sistema de autenticação
+import { db } from "@/lib/db";
+// import { getServerSession } from "next-auth"; // descomente quando tiver auth
 
 const claude = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -21,44 +21,44 @@ export async function POST(req: NextRequest) {
   }
 
   // ─── 1. Identifica o usuário logado ───────────────────────────────────────
-  // Descomente quando tiver autenticação configurada:
   // const session = await getServerSession();
   // if (!session) return Response.json({ error: "Não autenticado" }, { status: 401 });
   // const userId = session.user.id;
-  const userId = "demo"; // remova quando tiver auth real
+  const userId = 1; // substitua pelo id real do usuário logado
 
   // ─── 2. Busca dados reais do PostgreSQL ───────────────────────────────────
-  // Substitua pelas queries reais do seu banco.
-  // Exemplo com Prisma:
-  //
-  // const [clients, tasks, payments] = await Promise.all([
-  //   db.client.findMany({ where: { userId } }),
-  //   db.task.findMany({ where: { userId }, orderBy: { dueDate: "asc" } }),
-  //   db.payment.findMany({ where: { userId }, orderBy: { dueDate: "asc" } }),
-  // ]);
-  //
-  // Exemplo com pg (raw SQL):
-  //
-  // const { rows: clients }  = await db.query("SELECT * FROM clients WHERE user_id = $1", [userId]);
-  // const { rows: tasks }    = await db.query("SELECT * FROM tasks WHERE user_id = $1 ORDER BY due_date", [userId]);
-  // const { rows: payments } = await db.query("SELECT * FROM payments WHERE user_id = $1 ORDER BY due_date", [userId]);
-
-  // Dados de exemplo — substitua pelo código acima
-  const clients = [
-    { id: "1", name: "Empresa Alpha", status: "ativo",   email: "alpha@empresa.com" },
-    { id: "2", name: "Beta Ltda",     status: "ativo",   email: "beta@ltda.com" },
-    { id: "3", name: "Gama Corp",     status: "inativo", email: null },
-  ];
-  const tasks = [
-    { id: "t1", title: "Criar proposta comercial", client: "Empresa Alpha", status: "a fazer",        due_date: "2026-03-12" },
-    { id: "t2", title: "Reunião de kickoff",        client: "Beta Ltda",     status: "em andamento",  due_date: null },
-    { id: "t3", title: "Enviar relatório mensal",   client: "Empresa Alpha", status: "a fazer",        due_date: "2026-03-15" },
-  ];
-  const payments = [
-    { id: "p1", client: "Empresa Alpha", amount: 3500, status: "pago",     due_date: "2026-03-01" },
-    { id: "p2", client: "Beta Ltda",     amount: 1200, status: "atrasado", due_date: "2026-02-28" },
-    { id: "p3", client: "Gama Corp",     amount: 800,  status: "pendente", due_date: "2026-03-20" },
-  ];
+  // Adapte os nomes das tabelas/colunas conforme o seu banco.
+  const [
+    { rows: clients },
+    { rows: tasks },
+    { rows: payments },
+  ] = await Promise.all([
+    db.query(
+      `SELECT id, name, email, status
+       FROM clients
+       WHERE user_id = $1
+       ORDER BY name`,
+      [userId],
+    ),
+    db.query(
+      `SELECT t.id, t.title, t.status, t.due_date,
+              c.name AS client
+       FROM tasks t
+       LEFT JOIN clients c ON c.id = t.client_id
+       WHERE t.user_id = $1
+       ORDER BY t.due_date ASC NULLS LAST`,
+      [userId],
+    ),
+    db.query(
+      `SELECT p.id, p.amount, p.status, p.due_date,
+              c.name AS client
+       FROM payments p
+       LEFT JOIN clients c ON c.id = p.client_id
+       WHERE p.user_id = $1
+       ORDER BY p.due_date ASC NULLS LAST`,
+      [userId],
+    ),
+  ]);
 
   // ─── 3. Monta o system prompt com os dados ────────────────────────────────
   const system = buildSystemPrompt({ clients, tasks, payments });
